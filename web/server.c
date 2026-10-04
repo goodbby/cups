@@ -182,7 +182,7 @@ static int valid_hex12(const char *s){
 
 /* ---------- 转换 ---------- */
 static int pdf_pages(const char *pdf){
-    char cmd[1024]; snprintf(cmd, sizeof cmd, "pdfinfo '%s' 2>/dev/null", pdf);
+    char cmd[2048]; snprintf(cmd, sizeof cmd, "pdfinfo '%s' 2>/dev/null", pdf);
     char out[4096]; out[0] = '\0';
     run_pipe(cmd, out, sizeof out);
     char *p = strstr(out, "Pages:");
@@ -194,18 +194,18 @@ static int pdf_pages(const char *pdf){
 static int convert_to_pdf(const char *upload, const char *ext, const char *pdf, char *err, size_t errsz){
     int rc;
     if(strcasecmp(ext, ".pdf") == 0){
-        char cmd[1024]; snprintf(cmd, sizeof cmd, "cp '%s' '%s'", upload, pdf);
+        char cmd[2048]; snprintf(cmd, sizeof cmd, "cp '%s' '%s'", upload, pdf);
         rc = system(cmd);
     } else if(has_suffix(ext, IMG_EXTS)){
-        char cmd[1024]; snprintf(cmd, sizeof cmd, "img2pdf '%s' -o '%s' 2>&1", upload, pdf);
+        char cmd[2048]; snprintf(cmd, sizeof cmd, "img2pdf '%s' -o '%s' 2>&1", upload, pdf);
         char out[2048]; out[0] = '\0';
         rc = run_pipe(cmd, out, sizeof out);
         if(rc != 0){ snprintf(err, errsz, "图片转PDF失败: %s", out); return -1; }
         return 0;
     } else if(has_suffix(ext, DOC_EXTS)){
-        char dir[1024]; snprintf(dir, sizeof dir, "%s", pdf);
+        char dir[2048]; snprintf(dir, sizeof dir, "%s", pdf);
         char *sl = strrchr(dir, '/'); if(sl) *sl = '\0';
-        char cmd[1024];
+        char cmd[2048];
         snprintf(cmd, sizeof cmd,
             "HOME=/tmp soffice --headless --norestore --convert-to pdf --outdir '%s' '%s' 2>&1",
             dir, upload);
@@ -346,9 +346,15 @@ static void handle_print(int fd, char *body, size_t bodylen){
     char norm[256]; norm[0] = '\0';
     if(pages[0]){
         size_t j = 0;
-        for(size_t i = 0; pages[i] && j + 1 < sizeof norm; i++)
-            if(pages[i] == ',' || pages[i] == '，' || pages[i] == ' ') norm[j++] = ',';
+        for(size_t i = 0; pages[i] && j + 1 < sizeof norm; i++){
+            /* 全角逗号（U+FF0C，UTF-8: EF BC 8C）按半角逗号处理 */
+            if((unsigned char)pages[i] == 0xEF && (unsigned char)pages[i+1] == 0xBC
+               && (unsigned char)pages[i+2] == 0x8C){
+                norm[j++] = ','; i += 2;
+            }
+            else if(pages[i] == ',' || pages[i] == ' ') norm[j++] = ',';
             else norm[j++] = pages[i];
+        }
         norm[j] = '\0';
 
         int ok = 1;

@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-writer libreoffice-calc libreoffice-impress \
         fonts-noto-cjk fonts-wqy-zenhei \
         poppler-utils img2pdf qpdf \
-        gcc \
+        gcc libc6-dev \
         locales ca-certificates procps \
     && sed -i 's/^# *zh_CN.UTF-8/zh_CN.UTF-8/' /etc/locale.gen \
     && locale-gen \
