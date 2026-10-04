@@ -1,0 +1,22 @@
+services:
+  cups-print:
+    # 部署时替换为你的 GHCR 镜像: ghcr.io/<用户名>/cups-airprint:latest
+    build: .
+    image: cups-airprint:latest
+    container_name: cups-print
+    hostname: cups-print
+    network_mode: host          # host 网络：AirPrint(mDNS) 必须
+    privileged: true            # USB 打印机直通
+    restart: unless-stopped
+    environment:
+      - PORT=8080               # 网页面板端口
+      - PRINTER_NAME=Brother_DCP-7080D
+      - PRINTER_DESC=Brother DCP-7080D
+    volumes:
+      - ./cups-config:/etc/cups # CUPS 配置持久化（含 ppd、队列）
+      - /dev/bus/usb:/dev/bus/usb
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

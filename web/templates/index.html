@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CUPS 打印</title>
+<style>
+:root{
+  --green:#43c66b; --green-deep:#3bb75f; --green-light:#e9f8ef;
+  --text:#222; --muted:#9aa0a6; --bg:#f2f3f5; --card:#fff; --line:#ececee;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  max-width:520px;margin:0 auto;min-height:100vh;padding-bottom:48px}
+header{display:flex;align-items:center;padding:20px 16px 8px}
+header h1{font-size:24px;margin:0;font-weight:700;letter-spacing:.5px}
+header .user{color:var(--muted);font-size:14px;margin-left:8px;margin-top:6px}
+header .menu{margin-left:auto;color:#333;font-size:20px;padding:4px 6px;cursor:pointer;text-decoration:none}
+
+.toolbar{display:flex;align-items:center;gap:10px;padding:8px 16px 0}
+.toolbar .icon-btn{color:var(--green);font-size:20px;background:none;border:none;padding:6px;cursor:pointer}
+.toolbar select{flex:1;appearance:none;-webkit-appearance:none;border:1px solid var(--line);border-radius:10px;
+  padding:10px 30px 10px 12px;font-size:14px;color:var(--text);background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>") no-repeat right 12px center}
+.toolbar .printer-ic{color:var(--green);font-size:22px}
+
+.card{background:var(--card);border-radius:14px;margin:12px 16px 0;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.card-label{font-size:14px;color:#444;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.card-label .hint{color:var(--muted);font-size:12px}
+
+/* 上传区 */
+.dropzone{border:2px dashed #d9dbe0;border-radius:12px;padding:28px 12px;text-align:center;cursor:pointer;transition:.15s}
+.dropzone.active{border-color:var(--green);background:var(--green-light)}
+.dropzone .dz-icon{width:44px;height:44px;color:#8bc9a1;margin:0 auto 8px}
+.dropzone .dz-title{font-size:16px;color:#555}
+.dropzone .dz-sub{font-size:12px;color:var(--muted);margin-top:6px}
+.dropzone .dz-file{font-size:13px;color:var(--green-deep);margin-top:6px;word-break:break-all}
+
+/* 分段控件 */
+.seg{display:flex;background:#f1f2f4;border-radius:10px;padding:3px}
+.seg button{flex:1;border:none;background:transparent;border-radius:8px;padding:9px 0;font-size:14px;color:#666;cursor:pointer}
+.seg button.on{background:var(--green);color:#fff;font-weight:600}
+
+input.pages{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-size:14px;outline:none}
+input.pages:focus{border-color:var(--green)}
+
+/* 预览行 */
+.preview-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.preview-head .eye{color:#555;font-size:16px}
+.preview-head .t{font-size:15px;color:#333}
+.seg.small{flex:0 0 auto;width:150px}
+.seg.small button{padding:6px 0;font-size:13px}
+.a4{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap}
+.preview-box{display:none;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fafafa}
+.preview-box iframe{width:100%;height:300px;border:0;display:block}
+.preview-info{font-size:12px;color:var(--muted);padding:6px 10px;background:#fafafa;border-top:1px solid var(--line)}
+
+/* 打印按钮 */
+.print-wrap{text-align:center;margin-top:22px}
+.print-circle{width:96px;height:96px;border-radius:50%;border:none;background:#8fdcae;color:#fff;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(67,198,107,.35);transition:.15s}
+.print-circle:active{transform:scale(.95)}
+.print-circle:disabled{background:#c9cdc9;box-shadow:none}
+.print-circle svg{width:40px;height:40px}
+.print-text{margin-top:10px;font-size:14px;color:#666}
+
+/* Toast */
+#toast{position:fixed;left:50%;bottom:60px;transform:translateX(-50%);background:rgba(0,0,0,.78);color:#fff;
+  padding:10px 18px;border-radius:8px;font-size:13px;max-width:80vw;display:none;z-index:99;word-break:break-all}
+
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;
+  animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CUPS 打印</h1><span class="user">guest</span>
+  <a class="menu" href="javascript:void(0)" onclick="openAdmin()">&#9776;</a>
+</header>
+
+<div class="toolbar">
+  <span class="printer-ic">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+  </span>
+  <select id="printer"><option>加载打印机中...</option></select>
+  <button class="icon-btn" title="刷新" onclick="loadPrinters(true)">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+  </button>
+  <button class="icon-btn" title="打印队列" onclick="openQueue()">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+  </button>
+</div>
+
+<!-- 上传 -->
+<div class="card">
+  <div class="dropzone" id="dropzone" onclick="document.getElementById('file').click()">
+    <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16.2A4.5 4.5 0 0 1 6.4 8a6 6 0 0 1 11.5 1.7A4 4 0 0 1 18 17.5"/><path d="M12 12v9"/><path d="m8 16 4-4 4 4"/></svg>
+    <div class="dz-title" id="dzTitle">点击选择文件</div>
+    <div class="dz-sub">PDF / Word / Excel / 图片</div>
+    <div class="dz-file" id="dzFile"></div>
+  </div>
+  <input type="file" id="file" hidden accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.csv,.txt,.wps,.et,.dps,.jpg,.jpeg,.png,.bmp,.gif,.webp,.tif,.tiff">
+</div>
+
+<!-- 双面 + 页码范围 -->
+<div class="card">
+  <div class="card-label">双面打印</div>
+  <div class="seg" id="segDuplex">
+    <button data-v="0">单面</button>
+    <button data-v="1" class="on">双面（默认）</button>
+  </div>
+  <div class="card-label" style="margin-top:14px">页码范围 <span class="hint">留空=全部，如：1-5 8</span></div>
+  <input class="pages" id="pages" placeholder="留空=全部">
+</div>
+
+<!-- 预览 -->
+<div class="card">
+  <div class="preview-head">
+    <svg class="eye" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+    <span class="t">预览</span>
+    <div class="seg small" id="segOrient">
+      <button data-v="portrait" class="on">纵向</button>
+      <button data-v="landscape">横向</button>
+    </div>
+    <span class="a4">A4 (210&times;297mm)</span>
+  </div>
+  <div class="preview-box" id="previewBox">
+    <iframe id="previewFrame" title="预览"></iframe>
+    <div class="preview-info" id="previewInfo"></div>
+  </div>
+</div>
+
+<div class="print-wrap">
+  <button class="print-circle" id="btnPrint" onclick="doPrint()" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+  </button>
+  <div class="print-text">打印</div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let duplex = true, orientation = "portrait", current = null; // current = {file_id, name, pages}
+
+function toast(msg, ms=2600){
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._tm); t._tm = setTimeout(()=> t.style.display="none", ms);
+}
+
+/* 分段控件 */
+function bindSeg(id, cb){
+  $(id).querySelectorAll("button").forEach(b=>{
+    b.onclick = ()=>{
+      $(id).querySelectorAll("button").forEach(x=>x.classList.remove("on"));
+      b.classList.add("on"); cb(b.dataset.v);
+    };
+  });
+}
+bindSeg("segDuplex", v => duplex = v === "1");
+bindSeg("segOrient", v => orientation = v);
+
+/* 打印机列表 */
+async function loadPrinters(showToast){
+  try{
+    const r = await fetch("/api/printers"); const d = await r.json();
+    const sel = $("printer"); sel.innerHTML = "";
+    (d.printers||[]).forEach(p=>{
+      const o = document.createElement("option");
+      o.value = p.name; o.textContent = p.name + (p.default ? "（默认）" : "");
+      if(p.default) o.selected = true;
+      sel.appendChild(o);
+    });
+    if(!d.printers || !d.printers.length) sel.innerHTML = "<option>未发现打印机</option>";
+    if(showToast) toast("打印机列表已刷新");
+  }catch(e){ $("printer").innerHTML = "<option>获取失败</option>"; }
+}
+loadPrinters(false);
+
+/* 上传 */
+const dz = $("dropzone");
+$("file").onchange = e => { if(e.target.files[0]) upload(e.target.files[0]); e.target.value=""; };
+["dragover","dragenter"].forEach(ev=>dz.addEventListener(ev,ev2=>{ev2.preventDefault();dz.classList.add("active");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,ev2=>{ev2.preventDefault();dz.classList.remove("active");}));
+dz.addEventListener("drop", ev2=>{ const f = ev2.dataTransfer.files[0]; if(f) upload(f); });
+
+async function upload(file){
+  $("dzTitle").innerHTML = '<span class="spin"></span>转换中...';
+  $("dzFile").textContent = file.name;
+  try{
+    const fd = new FormData(); fd.append("file", file);
+    const r = await fetch("/api/upload", {method:"POST", body:fd});
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error || "上传失败");
+    current = d;
+    $("dzTitle").textContent = "点击重新选择";
+    $("previewBox").style.display = "block";
+    $("previewFrame").src = d.pdf_url;
+    $("previewInfo").textContent = d.name + "　·　" + d.pages + " 页";
+    $("btnPrint").disabled = false;
+    toast("转换完成：" + d.pages + " 页");
+  }catch(err){
+    $("dzTitle").textContent = "点击选择文件";
+    $("dzFile").textContent = "";
+    $("btnPrint").disabled = true;
+    toast("❌ " + err.message, 4000);
+  }
+}
+
+/* 打印 */
+async function doPrint(){
+  if(!current) return;
+  const btn = $("btnPrint");
+  btn.disabled = true;
+  try{
+    const r = await fetch("/api/print", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        file_id: current.file_id,
+        printer: $("printer").value,
+        duplex, orientation,
+        pages: $("pages").value.trim()
+      })
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error || "打印失败");
+    toast("✅ " + d.message + (d.job_id ? "（任务 " + d.job_id + "）" : ""), 4000);
+  }catch(err){
+    toast("❌ " + err.message, 4000);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function openAdmin(){ window.open("http://" + location.hostname + ":631", "_blank"); }
+function openQueue(){ window.open("http://" + location.hostname + ":631/printers/", "_blank"); }
+</script>
+</body>
+</html>
