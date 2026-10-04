@@ -9,6 +9,7 @@
 
 - 📱 **AirPrint 隔空打印**：内置 avahi，iPhone/iPad/Mac 自动发现打印机
 - 🌐 **中文网页打印面板**：手机/PC 浏览器上传文件 → 自动转 PDF → 打印
+  - 后端是**纯 C 零依赖** HTTP 服务（`web/server.c`，`gcc` 编译，无 Python/第三方库）
   - 支持 PDF / Word / Excel / PPT / 图片 / TXT 等（LibreOffice + img2pdf 转换）
   - 双面/单面切换（默认**双面**）
   - 页码范围（留空=全部，如 `1-5 8`）
@@ -30,7 +31,7 @@ cups-airprint/
 ├── avahi/avahi-daemon.conf       # avahi 配置（AirPrint 广播）
 ├── scripts/setup-printer.sh      # 自动配置 Brother DCP-7080D（幂等）
 └── web/
-    ├── server.py                 # Flask 网页后端（转换/打印 API）
+    ├── server.c                  # 纯 C 零依赖 HTTP 后端（gcc 编译，转换/打印 API）
     └── templates/index.html      # 中文打印面板（见截图样式）
 ```
 

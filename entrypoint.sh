@@ -33,6 +33,6 @@ echo "[entrypoint] CUPS 已启动: $(lpstat -r 2>&1 || true)"
 # ---------- 自动配置打印机（幂等） ----------
 /app/scripts/setup-printer.sh || echo "[entrypoint] 打印机配置失败，可稍后手动执行 /app/scripts/setup-printer.sh"
 
-# ---------- 网页面板 ----------
+# ---------- 网页面板（纯 C 后端） ----------
 echo "[entrypoint] 网页面板启动于 0.0.0.0:${PORT:-8080}"
-exec python3 -u /app/web/server.py
+exec /app/web/server
