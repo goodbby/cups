@@ -309,10 +309,10 @@ static void handle_upload(int fd, char *body, size_t bodylen, const char *bounda
 /* ---------- 打印机列表 ---------- */
 static void handle_printers(int fd){
     char out[8192]; out[0] = '\0';
-    run_pipe("lpstat -p 2>/dev/null", out, sizeof out);
+    run_pipe("LC_ALL=C lpstat -p 2>/dev/null", out, sizeof out);
     char def[256]; def[0] = '\0';
     char dout[1024]; dout[0] = '\0';
-    run_pipe("lpstat -d 2>/dev/null", dout, sizeof dout);
+    run_pipe("LC_ALL=C lpstat -d 2>/dev/null", dout, sizeof dout);
     char *dp = strstr(dout, "system default destination: ");
     if(dp){
         char *n = dp + 26;
@@ -407,7 +407,7 @@ static void handle_print(int fd, char *body, size_t bodylen){
 
     /* 组装 lp 命令 */
     char cmd[2048];
-    int cl = snprintf(cmd, sizeof cmd, "lp%s%s -o media=A4 -o %s -o print-color-mode=monochrome",
+    int cl = snprintf(cmd, sizeof cmd, "LC_ALL=C lp%s%s -o media=A4 -o %s -o print-color-mode=monochrome",
                       printer[0] ? " -d " : " ", printer[0] ? printer : "",
                       duplex ? "sides=two-sided-long-edge" : "sides=one-sided");
     if(norm[0]) cl += snprintf(cmd + cl, sizeof cmd - (size_t)cl, " -o page-ranges=%s", norm);

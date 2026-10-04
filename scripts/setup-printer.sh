@@ -6,7 +6,12 @@ PRINTER_NAME="${PRINTER_NAME:-Brother_DCP-7080D}"
 PRINTER_DESC="${PRINTER_DESC:-Brother DCP-7080D}"
 
 if lpstat -p "$PRINTER_NAME" >/dev/null 2>&1; then
-    echo "[setup] 打印机 $PRINTER_NAME 已存在，跳过配置"
+    echo "[setup] 打印机 $PRINTER_NAME 已存在，强制确保共享/启用/默认选项"
+    # 手动添加的打印机可能未勾选共享 → iPhone 搜不到隔空打印，这里幂等强制
+    lpadmin -p "$PRINTER_NAME" -o printer-is-shared=true \
+        -o media=A4 -o sides=two-sided-long-edge -o print-color-mode=monochrome
+    cupsenable "$PRINTER_NAME" 2>/dev/null || true
+    cupsaccept "$PRINTER_NAME" 2>/dev/null || true
     lpoptions -d "$PRINTER_NAME" >/dev/null 2>&1 || true
     exit 0
 fi
