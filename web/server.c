@@ -180,6 +180,22 @@ static int valid_hex12(const char *s){
     return 1;
 }
 
+/* JSON 字符串转义（引号/反斜杠/控制字符），返回写入长度 */
+static size_t json_escape(const char *in, char *out, size_t outsz){
+    size_t j = 0;
+    for(const unsigned char *p = (const unsigned char *)in; *p && j + 2 < outsz; p++){
+        unsigned char c = *p;
+        if(c == '"' || c == '\\'){ out[j++] = '\\'; out[j++] = (char)c; }
+        else if(c == '\n'){ out[j++] = '\\'; out[j++] = 'n'; }
+        else if(c == '\r'){ out[j++] = '\\'; out[j++] = 'r'; }
+        else if(c == '\t'){ out[j++] = '\\'; out[j++] = 't'; }
+        else if(c >= 0x20){ out[j++] = (char)c; }
+        /* 其他控制字符直接丢弃 */
+    }
+    out[j] = '\0';
+    return j;
+}
+
 /* ---------- 转换 ---------- */
 static int pdf_pages(const char *pdf){
     char cmd[2048]; snprintf(cmd, sizeof cmd, "pdfinfo '%s' 2>/dev/null", pdf);
@@ -200,7 +216,9 @@ static int convert_to_pdf(const char *upload, const char *ext, const char *pdf, 
         char cmd[2048]; snprintf(cmd, sizeof cmd, "img2pdf '%s' -o '%s' 2>&1", upload, pdf);
         char out[2048]; out[0] = '\0';
         rc = run_pipe(cmd, out, sizeof out);
-        if(rc != 0){ snprintf(err, errsz, "图片转PDF失败: %s", out); return -1; }
+        if(rc != 0 || access(pdf, R_OK) != 0){
+            snprintf(err, errsz, "图片转PDF失败: %s", out); return -1;
+        }
         return 0;
     } else if(has_suffix(ext, DOC_EXTS)){
         char dir[2048]; snprintf(dir, sizeof dir, "%s", pdf);
@@ -210,8 +228,9 @@ static int convert_to_pdf(const char *upload, const char *ext, const char *pdf, 
             "HOME=/tmp soffice --headless --norestore --convert-to pdf --outdir '%s' '%s' 2>&1",
             dir, upload);
         char out[2048]; out[0] = '\0';
-        rc = run_pipe(cmd, out, sizeof out);
-        if(rc != 0 || access(pdf, R_OK) != 0){
+        run_pipe(cmd, out, sizeof out);
+        /* soffice 退出码不可靠（javaldx 警告等也会导致非0），以产物文件为准 */
+        if(access(pdf, R_OK) != 0){
             snprintf(err, errsz, "文档转PDF失败(LibreOffice): %s", out); return -1;
         }
         return 0;
@@ -271,17 +290,19 @@ static void handle_upload(int fd, char *body, size_t bodylen, const char *bounda
     unlink(upload);
 
     if(rc != 0){
-        char buf[1200]; int n = snprintf(buf, sizeof buf,
-            "{\"ok\":false,\"error\":\"%s\"}", err[0] ? err : "转换失败");
+        char esc[1024]; json_escape(err[0] ? err : "转换失败", esc, sizeof esc);
+        char buf[1400]; int n = snprintf(buf, sizeof buf,
+            "{\"ok\":false,\"error\":\"%s\"}", esc);
         http_reply(fd, 500, "Error", "application/json; charset=utf-8", buf, (size_t)n);
         return;
     }
 
     int pages = pdf_pages(pdf);
-    char buf[1024];
+    char esc_name[600]; json_escape(orig_name, esc_name, sizeof esc_name);
+    char buf[2048];
     int n = snprintf(buf, sizeof buf,
         "{\"ok\":true,\"file_id\":\"%s\",\"name\":\"%s\",\"pages\":%d,\"pdf_url\":\"/preview/%s.pdf\"}",
-        id, orig_name, pages, id);
+        id, esc_name, pages, id);
     http_reply(fd, 200, "OK", "application/json; charset=utf-8", buf, (size_t)n);
 }
 
@@ -336,6 +357,13 @@ static void handle_print(int fd, char *body, size_t bodylen){
         http_reply(fd, 400, "Bad Request", "application/json; charset=utf-8",
                    "{\"ok\":false,\"error\":\"无效的文件\"}", 31); return;
     }
+    /* 打印机名只允许字母数字 - _（防止命令注入） */
+    for(char *q = printer; *q; q++){
+        if(!isalnum((unsigned char)*q) && *q != '-' && *q != '_'){
+            http_reply(fd, 400, "Bad Request", "application/json; charset=utf-8",
+                       "{\"ok\":false,\"error\":\"无效的打印机名\"}", 33); return;
+        }
+    }
     char pdf[1024]; snprintf(pdf, sizeof pdf, "%s/pdf/%s.pdf", WORK_DIR, file_id);
     if(access(pdf, R_OK) != 0){
         http_reply(fd, 404, "Not Found", "application/json; charset=utf-8",
@@ -389,8 +417,9 @@ static void handle_print(int fd, char *body, size_t bodylen){
     char out[1024]; out[0] = '\0';
     int rc = run_pipe(cmd, out, sizeof out);
     if(rc != 0){
-        char buf[1024]; int n = snprintf(buf, sizeof buf,
-            "{\"ok\":false,\"error\":\"打印失败: %s\"}", out[0] ? out : "lp 返回非0");
+        char esc[1024]; json_escape(out[0] ? out : "lp 返回非0", esc, sizeof esc);
+        char buf[1400]; int n = snprintf(buf, sizeof buf,
+            "{\"ok\":false,\"error\":\"打印失败: %s\"}", esc);
         http_reply(fd, 500, "Error", "application/json; charset=utf-8", buf, (size_t)n);
         return;
     }
@@ -444,9 +473,16 @@ static void handle_conn(int fd){
         } else if(strncmp(path, "/preview/", 9) == 0){
             char *pid = path + 9;
             size_t pl = strlen(pid);
-            if(pl == ID_LEN + 4 && strcmp(pid + ID_LEN, ".pdf") == 0 && valid_hex12(pid)){
-                char pdf[1024]; snprintf(pdf, sizeof pdf, "%s/pdf/%s", WORK_DIR, pid);
-                http_file(fd, pdf, "application/pdf");
+            if(pl == ID_LEN + 4 && strcmp(pid + ID_LEN, ".pdf") == 0){
+                char id13[ID_LEN + 1];
+                memcpy(id13, pid, ID_LEN); id13[ID_LEN] = '\0';
+                if(valid_hex12(id13)){
+                    char pdf[2048];
+                    snprintf(pdf, sizeof pdf, "%s/pdf/%s.pdf", WORK_DIR, id13);
+                    http_file(fd, pdf, "application/pdf");
+                } else {
+                    http_reply(fd, 404, "Not Found", "text/plain; charset=utf-8", "Not Found", 9);
+                }
             } else {
                 http_reply(fd, 404, "Not Found", "text/plain; charset=utf-8", "Not Found", 9);
             }

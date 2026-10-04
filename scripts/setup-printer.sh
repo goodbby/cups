@@ -11,20 +11,26 @@ if lpstat -p "$PRINTER_NAME" >/dev/null 2>&1; then
     exit 0
 fi
 
-echo "[setup] 检测 USB 打印机..."
-DEV=$(lpinfo -v 2>/dev/null | awk '/^usb:\/\/Brother\/DCP-7080D/{print $2; exit}')
-if [ -z "$DEV" ]; then
-    # 退而求其次：任意 Brother USB 设备
-    DEV=$(lpinfo -v 2>/dev/null | awk '/^usb:\/\/Brother/{print $2; exit}')
-fi
+echo "[setup] 检测 USB 打印机（重试 5 次）..."
+DEV=""
+for i in 1 2 3 4 5; do
+    DEV=$(lpinfo -v 2>/dev/null | awk '/^usb:\/\/Brother\/DCP-7080D/{print $2; exit}')
+    if [ -z "$DEV" ]; then
+        # 退而求其次：任意 Brother USB 设备
+        DEV=$(lpinfo -v 2>/dev/null | awk '/^usb:\/\/Brother/{print $2; exit}')
+    fi
+    [ -n "$DEV" ] && break
+    sleep 4
+done
 
 if [ -z "$DEV" ]; then
-    echo "[setup] 未检测到 Brother USB 打印机！"
-    echo "[setup] 请检查 USB 线与容器特权模式 (privileged: true)"
-    echo "[setup] 稍后重试: docker exec cups-print /app/scripts/setup-printer.sh"
-    exit 1
+    # 静态回退：lpadmin 不校验设备是否存在，usb backend 在打印时解析
+    # 插上打印机/重启容器后即可用
+    DEV="usb://Brother/DCP-7080D"
+    echo "[setup] 未检测到 Brother USB 打印机，使用静态 URI 回退: $DEV"
+    echo "[setup] 若打印不出，请检查 USB 线 / 容器 privileged 与 /dev/bus/usb 挂载"
 fi
-echo "[setup] 找到设备: $DEV"
+echo "[setup] 使用设备: $DEV"
 
 # 配置：brlaser 开源驱动 + 默认双面长边/A4/黑白 + 共享(AirPrint)
 lpadmin -p "$PRINTER_NAME" \
