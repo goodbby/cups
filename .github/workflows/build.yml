@@ -21,9 +21,10 @@ jobs:
         uses: actions/checkout@v4
 
       # GHCR 镜像名必须全小写
+      # 注意: GHCR 已删除的包名会被永久保留无法重用, 因此用固定的镜像名 cups-airprint
       - name: Compute lowercase image name
         id: repo
-        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/cups-airprint" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
