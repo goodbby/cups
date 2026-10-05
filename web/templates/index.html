@@ -135,6 +135,13 @@ input.pages:focus{border-color:var(--green)}
 const $ = id => document.getElementById(id);
 let duplex = true, orientation = "portrait", current = null; // current = {file_id, name, pages}
 
+/* 这些类型需经 LibreOffice 转换；图片/PDF 直接原件打印，无需转换 */
+const CONVERT_EXT = ["doc","docx","xls","xlsx","ppt","pptx","odt","ods","odp","rtf","csv","txt","wps","et","dps"];
+function needConvert(name){
+  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return !!(m && CONVERT_EXT.includes(m[1]));
+}
+
 function toast(msg, ms=2600){
   const t = $("toast"); t.textContent = msg; t.style.display = "block";
   clearTimeout(t._tm); t._tm = setTimeout(()=> t.style.display="none", ms);
@@ -177,7 +184,8 @@ $("file").onchange = e => { if(e.target.files[0]) upload(e.target.files[0]); e.t
 dz.addEventListener("drop", ev2=>{ const f = ev2.dataTransfer.files[0]; if(f) upload(f); });
 
 async function upload(file){
-  $("dzTitle").innerHTML = '<span class="spin"></span>转换中...';
+  const conv = needConvert(file.name);
+  $("dzTitle").innerHTML = '<span class="spin"></span>' + (conv ? "转换中..." : "上传中...");
   $("dzFile").textContent = file.name;
   try{
     const fd = new FormData(); fd.append("file", file);
@@ -191,7 +199,7 @@ async function upload(file){
     $("previewInfo").textContent = d.name + "　·　" + d.pages + " 页";
     $("btnPrint").style.display = "flex";
     $("btnPrint").disabled = false;
-    toast("转换完成：" + d.pages + " 页");
+    toast((conv ? "转换完成：" : "已就绪：") + d.pages + " 页");
   }catch(err){
     $("dzTitle").textContent = "点击选择文件";
     $("dzFile").textContent = "";
