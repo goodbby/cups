@@ -208,6 +208,7 @@ async function upload(file){
     if(!d.ok) throw new Error(d.error || "上传失败");
     current = Object.assign(current || {}, d);  // 保留 _localUrl，附上 file_id 供打印
     $("dzTitle").textContent = "点击重新选择";
+    $("btnPrint").style.display = "flex";        // 显示按钮（图片/PDF 支已在前面显示，这里对 WORD 等补齐）
     $("btnPrint").disabled = false;              // 上传完成，可以打印了
     if(!instant){
       $("previewBox").style.display = "block";
