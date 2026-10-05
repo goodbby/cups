@@ -185,24 +185,43 @@ dz.addEventListener("drop", ev2=>{ const f = ev2.dataTransfer.files[0]; if(f) up
 
 async function upload(file){
   const conv = needConvert(file.name);
+  const instant = /\.(pdf|jpe?g|png|gif|bmp|webp|tif|tiff)$/i.test(file.name); // 图片/PDF 可本地即时预览
   $("dzTitle").innerHTML = '<span class="spin"></span>' + (conv ? "转换中..." : "上传中...");
   $("dzFile").textContent = file.name;
+
+  /* 图片/PDF：先用本地文件即时显示预览，无需等服务器返回 */
+  if(instant){
+    if(current && current._localUrl) URL.revokeObjectURL(current._localUrl);
+    const localUrl = URL.createObjectURL(file);
+    current = { _localUrl: localUrl };
+    $("previewBox").style.display = "block";
+    $("previewFrame").src = localUrl;
+    $("previewInfo").textContent = file.name;
+    $("btnPrint").style.display = "flex";   // 先显示按钮，但禁用（上传完成前不能打）
+    $("btnPrint").disabled = true;
+  }
+
   try{
     const fd = new FormData(); fd.append("file", file);
     const r = await fetch("/api/upload", {method:"POST", body:fd});
     const d = await r.json();
     if(!d.ok) throw new Error(d.error || "上传失败");
-    current = d;
+    current = Object.assign(current || {}, d);  // 保留 _localUrl，附上 file_id 供打印
     $("dzTitle").textContent = "点击重新选择";
-    $("previewBox").style.display = "block";
-    $("previewFrame").src = d.preview_url || d.pdf_url;
+    $("btnPrint").disabled = false;              // 上传完成，可以打印了
+    if(!instant){
+      $("previewBox").style.display = "block";
+      $("previewFrame").src = d.preview_url || d.pdf_url;
+    }
     $("previewInfo").textContent = d.name + "　·　" + d.pages + " 页";
-    $("btnPrint").style.display = "flex";
-    $("btnPrint").disabled = false;
     toast((conv ? "转换完成：" : "已就绪：") + d.pages + " 页");
   }catch(err){
+    if(current && current._localUrl){ URL.revokeObjectURL(current._localUrl); }
+    current = null;
     $("dzTitle").textContent = "点击选择文件";
     $("dzFile").textContent = "";
+    $("previewBox").style.display = "none";
+    $("previewFrame").src = "";
     $("btnPrint").style.display = "none";
     $("btnPrint").disabled = true;
     toast("❌ " + err.message, 4000);
