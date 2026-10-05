@@ -10,7 +10,8 @@
  *   GET  /api/health            健康检查
  *
  * 构建: gcc -O2 -Wall -o server server.c
- * 依赖: CUPS(lp/lpstat/lpadmin) + LibreOffice(soffice) + img2pdf + poppler-utils(pdfinfo)
+ * 依赖: CUPS(lp/lpstat/lpadmin) + LibreOffice(soffice) + poppler-utils(pdfinfo)
+ * 说明: PDF 与图片(jpg/png/...)不转换，原件直接预览/打印；仅 Office 文档走 soffice 转 PDF
  */
 
 #define _GNU_SOURCE
@@ -212,14 +213,6 @@ static int convert_to_pdf(const char *upload, const char *ext, const char *pdf, 
     if(strcasecmp(ext, ".pdf") == 0){
         char cmd[2048]; snprintf(cmd, sizeof cmd, "cp '%s' '%s'", upload, pdf);
         rc = system(cmd);
-    } else if(has_suffix(ext, IMG_EXTS)){
-        char cmd[2048]; snprintf(cmd, sizeof cmd, "img2pdf '%s' -o '%s' 2>&1", upload, pdf);
-        char out[2048]; out[0] = '\0';
-        rc = run_pipe(cmd, out, sizeof out);
-        if(rc != 0 || access(pdf, R_OK) != 0){
-            snprintf(err, errsz, "图片转PDF失败: %s", out); return -1;
-        }
-        return 0;
     } else if(has_suffix(ext, DOC_EXTS)){
         char dir[2048]; snprintf(dir, sizeof dir, "%s", pdf);
         char *sl = strrchr(dir, '/'); if(sl) *sl = '\0';
@@ -285,24 +278,35 @@ static void handle_upload(int fd, char *body, size_t bodylen, const char *bounda
                        "{\"ok\":false,\"error\":\"写入临时文件失败\"}", 36); return; }
     fwrite(cstart, 1, (size_t)(cend - cstart), f); fclose(f);
 
-    char err[1024]; err[0] = '\0';
-    int rc = convert_to_pdf(upload, ext[0] ? ext : ".bin", pdf, err, sizeof err);
-    unlink(upload);
+    int pages = 0;
+    char preview[1200];
 
-    if(rc != 0){
-        char esc[1024]; json_escape(err[0] ? err : "转换失败", esc, sizeof esc);
-        char buf[1400]; int n = snprintf(buf, sizeof buf,
-            "{\"ok\":false,\"error\":\"%s\"}", esc);
-        http_reply(fd, 500, "Error", "application/json; charset=utf-8", buf, (size_t)n);
-        return;
+    if(has_suffix(ext, IMG_EXTS)){
+        /* 图片无需转换：保留原文件，预览/打印直接用原件
+           （CUPS 经 cups-filters 原生支持 image/jpeg、image/png 等） */
+        pages = 1;
+        snprintf(preview, sizeof preview, "/preview/%s%s", id, ext);
+    } else {
+        char err[1024]; err[0] = '\0';
+        int rc = convert_to_pdf(upload, ext[0] ? ext : ".bin", pdf, err, sizeof err);
+        unlink(upload);
+
+        if(rc != 0){
+            char esc[1024]; json_escape(err[0] ? err : "转换失败", esc, sizeof esc);
+            char buf[1400]; int n = snprintf(buf, sizeof buf,
+                "{\"ok\":false,\"error\":\"%s\"}", esc);
+            http_reply(fd, 500, "Error", "application/json; charset=utf-8", buf, (size_t)n);
+            return;
+        }
+        pages = pdf_pages(pdf);
+        snprintf(preview, sizeof preview, "/preview/%s.pdf", id);
     }
 
-    int pages = pdf_pages(pdf);
     char esc_name[600]; json_escape(orig_name, esc_name, sizeof esc_name);
     char buf[2048];
     int n = snprintf(buf, sizeof buf,
-        "{\"ok\":true,\"file_id\":\"%s\",\"name\":\"%s\",\"pages\":%d,\"pdf_url\":\"/preview/%s.pdf\"}",
-        id, esc_name, pages, id);
+        "{\"ok\":true,\"file_id\":\"%s\",\"name\":\"%s\",\"pages\":%d,\"preview_url\":\"%s\"}",
+        id, esc_name, pages, preview);
     http_reply(fd, 200, "OK", "application/json; charset=utf-8", buf, (size_t)n);
 }
 
@@ -364,10 +368,20 @@ static void handle_print(int fd, char *body, size_t bodylen){
                        "{\"ok\":false,\"error\":\"无效的打印机名\"}", 33); return;
         }
     }
-    char pdf[1024]; snprintf(pdf, sizeof pdf, "%s/pdf/%s.pdf", WORK_DIR, file_id);
-    if(access(pdf, R_OK) != 0){
-        http_reply(fd, 404, "Not Found", "application/json; charset=utf-8",
-                   "{\"ok\":false,\"error\":\"文件不存在，请重新上传\"}", 39); return;
+    /* 定位文件：优先转换后的 PDF，其次是图片原件（图片不转换直接打） */
+    char file[1024]; int is_image = 0;
+    snprintf(file, sizeof file, "%s/pdf/%s.pdf", WORK_DIR, file_id);
+    if(access(file, R_OK) != 0){
+        file[0] = '\0';
+        for(int i = 0; IMG_EXTS[i]; i++){
+            snprintf(file, sizeof file, "%s/uploads/%s%s", WORK_DIR, file_id, IMG_EXTS[i]);
+            if(access(file, R_OK) == 0){ is_image = 1; break; }
+            file[0] = '\0';
+        }
+        if(!file[0]){
+            http_reply(fd, 404, "Not Found", "application/json; charset=utf-8",
+                       "{\"ok\":false,\"error\":\"文件不存在，请重新上传\"}", 39); return;
+        }
     }
 
     /* 校验页码范围格式: 1-5 8 / 1-5,8 */
@@ -410,9 +424,11 @@ static void handle_print(int fd, char *body, size_t bodylen){
     int cl = snprintf(cmd, sizeof cmd, "LC_ALL=C lp%s%s -o media=A4 -o %s -o print-color-mode=monochrome",
                       printer[0] ? " -d " : " ", printer[0] ? printer : "",
                       duplex ? "sides=two-sided-long-edge" : "sides=one-sided");
-    if(norm[0]) cl += snprintf(cmd + cl, sizeof cmd - (size_t)cl, " -o page-ranges=%s", norm);
+    /* 图片只有 1 页，页码范围无意义；加 fit-to-page 让图片缩放到 A4 纸面 */
+    if(is_image) cl += snprintf(cmd + cl, sizeof cmd - (size_t)cl, " -o fit-to-page");
+    else if(norm[0]) cl += snprintf(cmd + cl, sizeof cmd - (size_t)cl, " -o page-ranges=%s", norm);
     snprintf(cmd + cl, sizeof cmd - (size_t)cl, " -o orientation-requested=%s '%s'",
-             (orient[0] && strcmp(orient, "landscape") == 0) ? "4" : "3", pdf);
+             (orient[0] && strcmp(orient, "landscape") == 0) ? "4" : "3", file);
 
     char out[1024]; out[0] = '\0';
     int rc = run_pipe(cmd, out, sizeof out);
@@ -472,17 +488,28 @@ static void handle_conn(int fd){
             http_reply(fd, 200, "OK", "application/json; charset=utf-8", "{\"ok\":true}", 11);
         } else if(strncmp(path, "/preview/", 9) == 0){
             char *pid = path + 9;
-            size_t pl = strlen(pid);
-            if(pl == ID_LEN + 4 && strcmp(pid + ID_LEN, ".pdf") == 0){
-                char id13[ID_LEN + 1];
-                memcpy(id13, pid, ID_LEN); id13[ID_LEN] = '\0';
-                if(valid_hex12(id13)){
-                    char pdf[2048];
-                    snprintf(pdf, sizeof pdf, "%s/pdf/%s.pdf", WORK_DIR, id13);
-                    http_file(fd, pdf, "application/pdf");
-                } else {
-                    http_reply(fd, 404, "Not Found", "text/plain; charset=utf-8", "Not Found", 9);
+            char id13[ID_LEN + 1];
+            memcpy(id13, pid, ID_LEN); id13[ID_LEN] = '\0';
+            const char *ext = pid + ID_LEN;   /* .pdf 或图片扩展名 */
+            const char *mime = NULL;
+            char fpath[2048]; fpath[0] = '\0';
+            if(valid_hex12(id13)){
+                if(strcmp(ext, ".pdf") == 0){
+                    snprintf(fpath, sizeof fpath, "%s/pdf/%s.pdf", WORK_DIR, id13);
+                    mime = "application/pdf";
+                } else if(has_suffix(ext, IMG_EXTS)){
+                    snprintf(fpath, sizeof fpath, "%s/uploads/%s%s", WORK_DIR, id13, ext);
+                    if(strcasecmp(ext, ".png") == 0)       mime = "image/png";
+                    else if(strcasecmp(ext, ".gif") == 0)  mime = "image/gif";
+                    else if(strcasecmp(ext, ".bmp") == 0)  mime = "image/bmp";
+                    else if(strcasecmp(ext, ".webp") == 0) mime = "image/webp";
+                    else if(strcasecmp(ext, ".tif") == 0 ||
+                            strcasecmp(ext, ".tiff") == 0) mime = "image/tiff";
+                    else                                   mime = "image/jpeg";
                 }
+            }
+            if(mime){
+                http_file(fd, fpath, mime);
             } else {
                 http_reply(fd, 404, "Not Found", "text/plain; charset=utf-8", "Not Found", 9);
             }

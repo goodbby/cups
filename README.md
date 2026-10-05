@@ -10,7 +10,7 @@
 - 📱 **AirPrint 隔空打印**：内置 avahi，iPhone/iPad/Mac 自动发现打印机
 - 🌐 **中文网页打印面板**：手机/PC 浏览器上传文件 → 自动转 PDF → 打印
   - 后端是**纯 C 零依赖** HTTP 服务（`web/server.c`，`gcc` 编译，无 Python/第三方库）
-  - 支持 PDF / Word / Excel / PPT / 图片 / TXT 等（LibreOffice + img2pdf 转换）
+  - 支持 PDF / Word / Excel / PPT / 图片 / TXT 等（PDF 和图片原件直通打印不转换；Office 文档经 LibreOffice 转 PDF）
   - 双面/单面切换（默认**双面**）
   - 页码范围（留空=全部，如 `1-5 8`）
   - 预览（纵向/横向，A4）

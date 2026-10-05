@@ -187,7 +187,7 @@ async function upload(file){
     current = d;
     $("dzTitle").textContent = "点击重新选择";
     $("previewBox").style.display = "block";
-    $("previewFrame").src = d.pdf_url;
+    $("previewFrame").src = d.preview_url || d.pdf_url;
     $("previewInfo").textContent = d.name + "　·　" + d.pages + " 页";
     $("btnPrint").style.display = "flex";
     $("btnPrint").disabled = false;

@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         avahi-daemon avahi-utils dbus libnss-mdns \
         libreoffice-writer libreoffice-calc libreoffice-impress \
         fonts-noto-cjk fonts-wqy-zenhei \
-        poppler-utils img2pdf qpdf \
+        poppler-utils qpdf \
         gcc libc6-dev \
         locales ca-certificates procps \
     && sed -i 's/^# *zh_CN.UTF-8/zh_CN.UTF-8/' /etc/locale.gen \
